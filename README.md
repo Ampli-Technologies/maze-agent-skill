@@ -29,7 +29,7 @@ read the validation report, then Rehearse before deploying.
    such as the Hyperliquid Signal Trader or Base Signal Accumulator
    template.
 2. Create its URL: Agents -> the agent's journal -> Webhook -> Create URL.
-   It looks like `http://localhost:3005/api/composer/webhooks/<token>` and is shown once.
+   It looks like `https://controlroom.ampli.net/api/composer/webhooks/<token>` and is shown once.
 3. Give it to the agent as an environment variable, `AMPLI_WEBHOOK_URL`.
    Anyone with the URL can send this agent signals, so keep it out of
    files you commit or share. Replacing the URL revokes the old one.

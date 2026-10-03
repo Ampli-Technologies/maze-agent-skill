@@ -86,7 +86,7 @@ Maze Studio -> AI Skill -> Import composition.
 
 - The agent's webhook URL. The user creates it on the deployed agent:
   Agents -> the agent's journal -> Webhook -> Create URL. It is shown once
-  and looks like `http://localhost:3005/api/composer/webhooks/<token>`. The token in the
+  and looks like `https://controlroom.ampli.net/api/composer/webhooks/<token>`. The token in the
   path is the only credential, so treat the URL as a secret: read it from
   an environment variable such as `AMPLI_WEBHOOK_URL`, never write it into
   a file that may be committed, and never print it in full.
