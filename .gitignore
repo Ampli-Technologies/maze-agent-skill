@@ -1,0 +1,3 @@
+#Ignore cursor AI rules
+.cursor/
+.codacy/
