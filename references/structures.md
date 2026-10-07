@@ -1,13 +1,13 @@
 # Structures
 
-Generated from Maze Studio catalog `2026.10.3.3`.
+Generated from Maze Studio catalog `2026.10.5.1`.
 
 ## Composition schema
 
 ```json
 {
   "version": 2,
-  "catalogVersion": "2026.10.3.3",
+  "catalogVersion": "2026.10.5.1",
   "name": "string",
   "strategyClass": "treasury-yield",
   "defs": {
@@ -34,7 +34,7 @@ Generated from Maze Studio catalog `2026.10.3.3`.
     {
       "source": "node id",
       "target": "node id",
-      "sourceHandle": "one of the source's outputs, e.g. primary | fallback | passed | blocked | buy | sell | exit (required when the source has several)",
+      "sourceHandle": "one of the source's outputs, e.g. primary | fallback | passed | blocked | buy | sell | exit | execute (required when the source has several)",
       "payload": "flow"
     }
   ]
@@ -138,7 +138,8 @@ dexes, mostly tokenized stocks. Name one `dex:TICKER`, dex in lower case:
 ## Webhook trigger
 
 The `webhook` trigger lets an outside source -- a TradingView alert, the
-user's own model -- tell a deployed agent to buy, sell or exit a symbol.
+user's own model -- tell a deployed agent to buy, sell or exit a symbol,
+or hand it prepared calls to `execute` (see Execute payload below).
 The trigger takes a signal for any symbol; the blocks after it decide what
 trades. The graph fixes venue, guards and the largest size; the signal
 picks the direction, names the symbol and may shrink the size. The
@@ -170,8 +171,9 @@ this way reads the same symbol.
 
 ### Wiring
 
-- Name `sourceHandle` `buy`, `sell` or `exit` on every edge out of a
-  `webhook`. Leave an output unwired to ignore that action.
+- Name `sourceHandle` `buy`, `sell`, `exit` or `execute` on every edge out
+  of a `webhook`. Leave an output unwired to ignore that action. Wire
+  `execute` only to `raw-calls`.
 - Each run takes the oldest waiting signal. A signal not acted on within
   `maxAge` expires (`WEBHOOK_EXPIRED`).
 - The payload size is read by `twap` (its budget), `swap` with `sizeFrom`
@@ -200,18 +202,23 @@ this way reads the same symbol.
   signal". `exit` and `sell` -> `slippage-cap` -> `swap` `from` "Webhook
   signal" `to` USDC with `sizeFrom` "Share of balance" on Orbs dTWAP. Tell
   the user to whitelist every token address the source may send.
+- Run an outside agent's plan (Passthrough Agent): `execute` ->
+  `raw-calls`, with `journal` on `default` and `none` and an `alert` on
+  `blocked`, plus a `kill-switch`. `raw-calls` does its own policy checks,
+  so no guard sits between them.
 
 ### Signal payload
 
-`POST` JSON or a plain-text message, at most 16 KB:
+`POST` JSON or a plain-text message, at most 64 KB:
 
 ```json
 { "action": "buy", "symbol": "ETH", "size_pct": 50, "price": 3400, "id": "tv-1712", "message": "breakout" }
 ```
 
-- `action` (also `side`, `signal`, `order_action`): `buy` | `sell` | `exit`;
-  `long`, `short`, `close`, `flat` are accepted. `market_position: "flat"`
-  always means exit.
+- `action` (also `side`, `signal`, `order_action`): `buy` | `sell` | `exit`
+  | `execute`; `long`, `short`, `close`, `flat` and `run` are accepted.
+  `market_position: "flat"` always means exit. A payload carrying `calls`
+  or `hlActions` with no action is read as `execute`.
 - `symbol` (also `ticker`, `coin`, `asset`, `token`): what to trade.
   Exchange prefixes and quote suffixes are dropped, so `BINANCE:ETHUSDT.P`,
   `ETH-PERP` and `WETH` are all `ETH`. A lower-case or known dex prefix is
@@ -229,15 +236,48 @@ Plain text works too: `buy ETH $500`, `sell BTC 25%`, `exit SOL`,
 `buy xyz:TSLA $250`. A bare number is ignored as ambiguous; write `$500`,
 `500usd` or `25%`.
 
-The URL is created on the deployed agent (Agents -> the agent's journal ->
-Webhook -> Create URL). It is shown once; replacing it revokes the old one.
-Signals are only taken while the agent is active, and the run starts as
-soon as the signal lands.
+### Execute payload
 
-Responses: 202 queued, 200 duplicate id, 400 unreadable payload, 404
-unknown URL, 409 agent not active, 413 body over 16 KB, 422 the agent has
-no webhook flow, 429 more than 20 signals waiting, 503 temporarily
-unavailable.
+An `execute` signal carries the work itself for a `raw-calls` block. JSON
+only; plain text cannot carry calls.
+
+- `calls`: up to 32 of `{ "to", "data", "value" }`, run as one batch from
+  the treasury wallet. `to` is a 0x address, `data` is hex (default `0x`),
+  `value` is a whole number of wei as a string (default 0).
+- `hlActions`: up to 32 Hyperliquid actions, each with a `type`:
+  - `order`: `orders` is a list of `{ coin, side: buy|sell, notionalUsd,
+    coinSize?, orderType: market|limit, limitPx?, reduceOnly, market:
+    perp|spot }`. `coinSize` overrides `notionalUsd`.
+  - `cancel`: `{ coin, orderId }`. `cancelAll`: no fields.
+  - `flattenOrder`: `{ coin, isBuy, coinSize }`.
+  - `usdClassTransfer`: `{ amountUsd, toPerp }`, moving USD between the
+    spot and perp balances.
+  - `approveAgent`, `sendToEvmWithData` and `enableDexAbstraction` manage
+    the account and are refused (`HL_ACTION_NOT_ALLOWED`).
+- The block's `maxCalls` caps `calls`; `allowHyperliquid` off refuses any
+  signal with `hlActions`.
+- Policy checks before anything runs: call targets, token spenders and
+  recipients must be whitelisted and proceeds must stay in the wallet;
+  Hyperliquid must be an enabled venue and every `coin` inside the
+  policy's universe. One failure refuses the whole signal
+  (`RAW_CALLS_REFUSED`); an empty one ends `RAW_CALLS_EMPTY`. The treasury
+  contract enforces its whitelist on chain as well.
+
+### Address and key
+
+Each deployed agent has one address on the agent composer API,
+`https://<agent composer API host>/v1/webhooks/wh_...`, fixed for its life. Its API key (`mzk_...`) is
+made in Maze Studio (the strategy's Webhook Signal block, or the agent's
+journal -> Webhook -> Create key) and shown once. Rotating makes a new key
+and stops the old one at once; revoking leaves the address refusing every
+signal. Send the key as `Authorization: Bearer <key>`, as `X-Webhook-Key:
+<key>`, or as `"key"` in a JSON body. Signals are only taken while the
+agent is active, and the run starts as soon as the signal lands.
+
+Responses: 202 queued, 200 duplicate id, 400 unreadable payload, 401
+missing or wrong key, 404 unknown address, 409 agent not active, 413 body
+over 16 KB, 422 the agent has no webhook flow, 429 more than 20 signals
+waiting.
 
 ## Reason codes
 
@@ -380,6 +420,9 @@ When describing outcomes, only use these fixed codes:
 - `POSITION_HEALTHY`
 - `POSITION_SYNCED`
 - `POSITION_TAG_UNOPENED`
+- `RAW_CALLS_EMPTY`
+- `RAW_CALLS_QUEUED`
+- `RAW_CALLS_REFUSED`
 - `REBALANCE_DONE`
 - `REBALANCE_SKIPPED`
 - `REPAY_FAILED`
@@ -447,6 +490,7 @@ When describing outcomes, only use these fixed codes:
 - `VAULT_READ`
 - `VAULT_REDEEMED`
 - `WEBHOOK_BUY`
+- `WEBHOOK_EXECUTE`
 - `WEBHOOK_EXIT`
 - `WEBHOOK_EXPIRED`
 - `WEBHOOK_SELL`
@@ -501,11 +545,11 @@ When describing outcomes, only use these fixed codes:
   - strategyClasses: treasury-yield
   - config: `idleAfter` (select) one of: "12 hours", "24 hours", "3 days"; default: "24 hours" | `minIdle` (number, $, min 0); default: 25000
   - reasonCodes: IDLE_CAPITAL_DETECTED
-- `webhook` -- Webhook Signal: Fires when an outside source (a TradingView alert, your own model) posts a signal to this agent's webhook URL. The payload is JSON or a plain message saying buy, sell or exit, with a symbol and an optional size. The action picks the output; the symbol passes on to every block after it set to receive it: a Perp or Spot Position's Symbol, a TWAP's Accumulate, a Swap's From or To. Those trade what the signal names if the treasury policy allows it; a block that names its own instrument acts only on signals for that instrument or for none.
-  - io: no input, outputs: buy + sell + exit
+- `webhook` -- Webhook Signal: Fires when an outside source (a TradingView alert, your own model) posts a signal to this agent's webhook address with its API key. The payload is JSON or a plain message saying buy, sell or exit, with a symbol and an optional size. The action picks the output; the symbol passes on to every block after it set to receive it: a Perp or Spot Position's Symbol, a TWAP's Accumulate, a Swap's From or To. Those trade what the signal names if the treasury policy allows it; a block that names its own instrument acts only on signals for that instrument or for none.
+  - io: no input, outputs: buy + sell + exit + execute
   - strategyClasses: treasury-yield, directional, market-neutral, hedged-carry
   - config: `maxAge` (select) one of: "1 min", "5 min", "15 min", "1 hour"; default: "5 min" -- A signal not acted on within this window is dropped, so a late tick never trades on an old alert. | `maxSizeUsd` (number, $, min 0, max 10000000); default: 0 -- Largest sizeUsd a payload may ask for; a larger one is cut to this. 0 ignores sizeUsd. A sizePct is always honoured, since it can only shrink what the block would do on its own.
-  - reasonCodes: WEBHOOK_BUY, WEBHOOK_SELL, WEBHOOK_EXIT, WEBHOOK_EXPIRED
+  - reasonCodes: WEBHOOK_BUY, WEBHOOK_SELL, WEBHOOK_EXIT, WEBHOOK_EXECUTE, WEBHOOK_EXPIRED
 
 ### Capital (category: capital)
 
@@ -705,6 +749,11 @@ When describing outcomes, only use these fixed codes:
   - strategyClasses: treasury-yield, directional, market-neutral, hedged-carry
   - config: `mode` (select) one of: "Proportional", "Threshold"; default: "Proportional" | `drift` (number, %, min 0, max 50); default: 5 | `scope` (select) one of: "Portfolio", "Strategy instance", "Position tag"; default: "Portfolio" | `weights` (text); default: undefined -- Percent by asset, for example USDC:70, ETH:30
   - reasonCodes: REBALANCE_DONE, REBALANCE_SKIPPED
+- `raw-calls` -- Raw Calls: Runs the calls and Hyperliquid actions a webhook signal carries, for an agent that plans outside ampli and only needs ampli to hold the keys. The payload's `calls` (to, data, value) run as one batch from the wallet; its `hlActions` are signed on the wallet's Hyperliquid account. Both are checked against the treasury policy first: whitelisted targets, spenders and recipients only, proceeds kept in the wallet, the venue enabled and every ticker inside the Hyperliquid universe.
+  - io: input, outputs: default + blocked + none
+  - strategyClasses: treasury-yield, directional, market-neutral, hedged-carry
+  - config: `maxCalls` (number, min 1, max 32); default: 16 -- A signal with more calls than this is refused whole. | `allowHyperliquid` (toggle); default: true -- Off refuses any signal carrying hlActions. On still needs Hyperliquid enabled in the treasury policy.
+  - reasonCodes: RAW_CALLS_QUEUED, RAW_CALLS_EMPTY, RAW_CALLS_REFUSED
 - `perp-position` -- Perp Position: Open or close one perpetual leg on Hyperliquid, including HIP-3 markets such as tokenized stocks (xyz:TSLA). In a two-leg structure each leg is its own block: the second sizes to match the first, and both carry the same position tag so Leg Check can flatten a leg left alone.
   - io: input, outputs: default + none
   - strategyClasses: directional, market-neutral, hedged-carry

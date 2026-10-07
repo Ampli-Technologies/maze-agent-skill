@@ -14,7 +14,7 @@ token accumulator driven by signals.
 ```json
 {
   "version": 2,
-  "catalogVersion": "2026.10.3.3",
+  "catalogVersion": "2026.10.5.1",
   "name": "Idle Treasury Optimizer",
   "strategyClass": "treasury-yield",
   "nodes": [
@@ -210,12 +210,12 @@ token accumulator driven by signals.
 
 ### Hyperliquid Signal Trader
 
-`hyperliquid-signal-trader`, directional. Trade Hyperliquid perps from outside signals. TradingView or any source posts buy, sell or exit with a ticker to this agent's webhook URL: buy closes any short and opens a long, sell closes any long and opens a short, exit closes both. The ticker is whatever the signal names; your policy's Hyperliquid universe (named tickers, or volume, open interest and rank floors) decides which may trade, and each ticker keeps its own long and short. Opens are sized from the Hyperliquid account at up to 2x and pass exposure and liquidation-distance guards; a payload may ask for a smaller share. A repeated signal adds nothing, and the kill switch stops entries past 8% drawdown.
+`hyperliquid-signal-trader`, directional. Trade Hyperliquid perps from outside signals. TradingView or any source posts buy, sell or exit with a ticker to this agent's webhook address: buy closes any short and opens a long, sell closes any long and opens a short, exit closes both. The ticker is whatever the signal names; your policy's Hyperliquid universe (named tickers, or volume, open interest and rank floors) decides which may trade, and each ticker keeps its own long and short. Opens are sized from the Hyperliquid account at up to 2x and pass exposure and liquidation-distance guards; a payload may ask for a smaller share. A repeated signal adds nothing, and the kill switch stops entries past 8% drawdown.
 
 ```json
 {
   "version": 2,
-  "catalogVersion": "2026.10.3.3",
+  "catalogVersion": "2026.10.5.1",
   "name": "Hyperliquid Signal Trader",
   "strategyClass": "directional",
   "nodes": [
@@ -628,12 +628,12 @@ token accumulator driven by signals.
 
 ### Base Signal Accumulator
 
-`base-signal-accumulator`, directional. Accumulate Base tokens from outside signals. TradingView or any source posts buy, sell or exit with a token to this agent's webhook URL, by ticker (AERO, cbBTC) or contract address, such as a tokenized stock issued on Base. A buy spends a fifth of the USDC through an Orbs dTWAP over an hour, inside a 50% allocation cap; a sell or exit swaps the treasury's whole holding of that token back to USDC. The token passes from the signal to both orders; only tokens whose address is on your policy whitelist can be bought or sold. The kill switch stops buys past 8% drawdown.
+`base-signal-accumulator`, directional. Accumulate Base tokens from outside signals. TradingView or any source posts buy, sell or exit with a token to this agent's webhook address, by ticker (AERO, cbBTC) or contract address, such as a tokenized stock issued on Base. A buy spends a fifth of the USDC through an Orbs dTWAP over an hour, inside a 50% allocation cap; a sell or exit swaps the treasury's whole holding of that token back to USDC. The token passes from the signal to both orders; only tokens whose address is on your policy whitelist can be bought or sold. The kill switch stops buys past 8% drawdown.
 
 ```json
 {
   "version": 2,
-  "catalogVersion": "2026.10.3.3",
+  "catalogVersion": "2026.10.5.1",
   "name": "Base Signal Accumulator",
   "strategyClass": "directional",
   "nodes": [
@@ -916,7 +916,7 @@ token accumulator driven by signals.
 ```json
 {
   "version": 2,
-  "catalogVersion": "2026.10.3.3",
+  "catalogVersion": "2026.10.5.1",
   "name": "Stablecoin Loop",
   "strategyClass": "treasury-yield",
   "nodes": [
@@ -1360,7 +1360,7 @@ token accumulator driven by signals.
 ```json
 {
   "version": 2,
-  "catalogVersion": "2026.10.3.3",
+  "catalogVersion": "2026.10.5.1",
   "name": "TWAP Accumulator",
   "strategyClass": "treasury-yield",
   "nodes": [
@@ -1525,7 +1525,7 @@ token accumulator driven by signals.
 ```json
 {
   "version": 2,
-  "catalogVersion": "2026.10.3.3",
+  "catalogVersion": "2026.10.5.1",
   "name": "LP Staking Ladder",
   "strategyClass": "treasury-yield",
   "nodes": [
@@ -1758,7 +1758,7 @@ token accumulator driven by signals.
 ```json
 {
   "version": 2,
-  "catalogVersion": "2026.10.3.3",
+  "catalogVersion": "2026.10.5.1",
   "name": "Hedged Concentrated LP",
   "strategyClass": "market-neutral",
   "nodes": [
@@ -2600,7 +2600,7 @@ token accumulator driven by signals.
 ```json
 {
   "version": 2,
-  "catalogVersion": "2026.10.3.3",
+  "catalogVersion": "2026.10.5.1",
   "name": "Funding Carry (Hyperliquid)",
   "strategyClass": "hedged-carry",
   "defs": {
@@ -3220,7 +3220,7 @@ token accumulator driven by signals.
 ```json
 {
   "version": 2,
-  "catalogVersion": "2026.10.3.3",
+  "catalogVersion": "2026.10.5.1",
   "name": "Pair Trade (Hyperliquid)",
   "strategyClass": "market-neutral",
   "defs": {
@@ -3791,6 +3791,132 @@ token accumulator driven by signals.
 }
 ```
 
+### Passthrough Agent
+
+`passthrough-agent`, directional. Run your own agent's plan through ampli. Your agent posts prepared calls (to, data, value) and Hyperliquid actions to this deployment's webhook address with its key; ampli checks every call and action against the treasury policy, refuses the whole signal if any one fails, and signs the rest from the wallet. Use it when your agent already decides what to do and only needs ampli to hold the keys and enforce the policy. The kill switch stops everything past 15% drawdown.
+
+```json
+{
+  "version": 2,
+  "catalogVersion": "2026.10.5.1",
+  "name": "Passthrough Agent",
+  "strategyClass": "directional",
+  "nodes": [
+    {
+      "id": "hook",
+      "kind": "webhook",
+      "position": {
+        "x": 0,
+        "y": 200
+      },
+      "config": {
+        "maxAge": "5 min",
+        "maxSizeUsd": 0
+      }
+    },
+    {
+      "id": "run",
+      "kind": "raw-calls",
+      "position": {
+        "x": 300,
+        "y": 200
+      },
+      "config": {
+        "maxCalls": 16,
+        "allowHyperliquid": true
+      }
+    },
+    {
+      "id": "kill",
+      "kind": "kill-switch",
+      "position": {
+        "x": 0,
+        "y": 420
+      },
+      "config": {
+        "maxDrawdown": 15,
+        "scope": "Global"
+      }
+    },
+    {
+      "id": "run-default-journal",
+      "kind": "journal",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "config": {
+        "label": "Ran the agent's calls"
+      }
+    },
+    {
+      "id": "run-blocked-alert",
+      "kind": "notify",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "config": {
+        "message": "The agent's signal was refused by the policy",
+        "channel": "Telegram",
+        "severity": "Warning"
+      }
+    },
+    {
+      "id": "run-none-journal",
+      "kind": "journal",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "config": {
+        "label": "Signal carried nothing to run"
+      }
+    },
+    {
+      "id": "kill-blocked-alert",
+      "kind": "notify",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "config": {
+        "message": "Kill switch tripped: drawdown over 15%",
+        "channel": "Telegram",
+        "severity": "Critical"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "source": "hook",
+      "target": "run",
+      "sourceHandle": "execute"
+    },
+    {
+      "source": "run",
+      "target": "run-default-journal",
+      "sourceHandle": "default"
+    },
+    {
+      "source": "run",
+      "target": "run-blocked-alert",
+      "sourceHandle": "blocked"
+    },
+    {
+      "source": "run",
+      "target": "run-none-journal",
+      "sourceHandle": "none"
+    },
+    {
+      "source": "kill",
+      "target": "kill-blocked-alert",
+      "sourceHandle": "blocked"
+    }
+  ]
+}
+```
+
 ### 2Factor Senior Yield
 
 `twofactor-senior-yield`, treasury-yield. Deposit idle USDC into the 2Factor USD vault (perpSr on Base) while its yield clears 5%. The deposit is sized down until the yield after it still clears the floor. Redeem when the yield falls below 3% or when an approved withdrawal needs the cash. Phase 1: USDC treasuries only.
@@ -3798,7 +3924,7 @@ token accumulator driven by signals.
 ```json
 {
   "version": 2,
-  "catalogVersion": "2026.10.3.3",
+  "catalogVersion": "2026.10.5.1",
   "name": "2Factor Senior Yield",
   "strategyClass": "treasury-yield",
   "nodes": [
@@ -4234,7 +4360,7 @@ token accumulator driven by signals.
 ```json
 {
   "version": 2,
-  "catalogVersion": "2026.10.3.3",
+  "catalogVersion": "2026.10.5.1",
   "name": "2Factor Junior Funding Arb",
   "strategyClass": "hedged-carry",
   "defs": {
@@ -5005,42 +5131,47 @@ token accumulator driven by signals.
 
 ## Signals
 
-Each example reads the URL from `AMPLI_WEBHOOK_URL`.
+Each example reads the address from `AMPLI_WEBHOOK_URL` and the API key
+from `AMPLI_WEBHOOK_KEY`.
 
 ### curl
 
 ```bash
 # Open or flip long ETH at half the block's size
-curl -sS -X POST "$AMPLI_WEBHOOK_URL" -H 'Content-Type: application/json' \
+curl -sS -X POST "$AMPLI_WEBHOOK_URL" -H "Authorization: Bearer $AMPLI_WEBHOOK_KEY" -H 'Content-Type: application/json' \
   -d '{"action":"buy","symbol":"ETH","size_pct":50,"id":"eth-buy-1"}'
 
 # Short Tesla on Hyperliquid's xyz dex
-curl -sS -X POST "$AMPLI_WEBHOOK_URL" -H 'Content-Type: application/json' \
+curl -sS -X POST "$AMPLI_WEBHOOK_URL" -H "Authorization: Bearer $AMPLI_WEBHOOK_KEY" -H 'Content-Type: application/json' \
   -d '{"action":"sell","symbol":"xyz:TSLA","id":"tsla-sell-1"}'
 
 # Buy a Base token by address (it must be on the policy whitelist)
-curl -sS -X POST "$AMPLI_WEBHOOK_URL" -H 'Content-Type: application/json' \
+curl -sS -X POST "$AMPLI_WEBHOOK_URL" -H "Authorization: Bearer $AMPLI_WEBHOOK_KEY" -H 'Content-Type: application/json' \
   -d '{"action":"buy","symbol":"0x532f27101965dd16442e59d40670faf5ebb142e4","id":"brett-buy-1"}'
 
 # Plain text
-curl -sS -X POST "$AMPLI_WEBHOOK_URL" -H 'Content-Type: text/plain' --data-raw 'exit SOL'
+curl -sS -X POST "$AMPLI_WEBHOOK_URL" -H "Authorization: Bearer $AMPLI_WEBHOOK_KEY" -H 'Content-Type: text/plain' --data-raw 'exit SOL'
+
+# Execute a prepared plan (Passthrough Agent): approve USDC, then a $500 ETH perp long
+curl -sS -X POST "$AMPLI_WEBHOOK_URL" -H "Authorization: Bearer $AMPLI_WEBHOOK_KEY" -H 'Content-Type: application/json' \
+  -d '{"action":"execute","id":"plan-42","calls":[{"to":"0x833589fcd6edb6e08f4c7c32d4f71b54bda02913","data":"0x095ea7b3...","value":"0"}],"hlActions":[{"type":"order","orders":[{"coin":"ETH","side":"buy","notionalUsd":500,"orderType":"market","reduceOnly":false,"market":"perp"}]}]}'
 ```
 
 ### TradingView
 
-Paste the URL into the alert's Webhook URL field.
-
-A strategy alert carries its own direction; use this message:
+TradingView cannot set headers, so the key goes in the message. Paste the
+address into the alert's Webhook URL field. A strategy alert carries its
+own direction; use this message:
 
 ```json
-{"action":"{{strategy.order.action}}","market_position":"{{strategy.market_position}}","ticker":"{{ticker}}","price":{{close}},"id":"{{timenow}}"}
+{"key":"<your API key>","action":"{{strategy.order.action}}","market_position":"{{strategy.market_position}}","ticker":"{{ticker}}","price":{{close}},"id":"{{timenow}}"}
 ```
 
 An indicator alert has no direction, so make one alert per action with
 the action written in:
 
 ```json
-{"action":"buy","ticker":"{{ticker}}","price":{{close}},"id":"{{ticker}}-{{timenow}}"}
+{"key":"<your API key>","action":"buy","ticker":"{{ticker}}","price":{{close}},"id":"{{ticker}}-{{timenow}}"}
 ```
 
 A chart on `NASDAQ:TSLA` sends `TSLA`, which trades the most-traded HIP-3
@@ -5055,16 +5186,18 @@ import json, os, time, urllib.error, urllib.request
 
 def send_signal(signal: dict) -> tuple[int, str]:
     url = os.environ["AMPLI_WEBHOOK_URL"]
+    headers = {
+        "Authorization": f"Bearer {os.environ['AMPLI_WEBHOOK_KEY']}",
+        "Content-Type": "application/json",
+    }
     body = json.dumps(signal).encode()
     for attempt in range(5):
-        request = urllib.request.Request(
-            url, data=body, method="POST", headers={"Content-Type": "application/json"}
-        )
+        request = urllib.request.Request(url, data=body, method="POST", headers=headers)
         try:
             with urllib.request.urlopen(request, timeout=10) as response:
                 return response.status, response.read().decode()
         except urllib.error.HTTPError as error:
-            if error.code not in (429, 503):
+            if error.code != 429:
                 return error.code, error.read().decode()
         except urllib.error.URLError:
             pass

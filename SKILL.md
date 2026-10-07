@@ -1,12 +1,12 @@
 ---
-name: ampli-composer
-description: Build strategy compositions for Ampli Maze Studio and send buy, sell or exit signals to a deployed Ampli agent's webhook. Use when the user asks to design, generate or change an Ampli treasury or agent strategy, or to trade a symbol through an Ampli agent, a TradingView alert or an Ampli webhook URL.
+name: maze-agent-skill
+description: Build strategy compositions for Ampli Maze Studio and send buy, sell, exit or execute signals to a deployed Ampli agent's webhook. Use when the user asks to design, generate or change an Ampli treasury or agent strategy, to trade a symbol through an Ampli agent, a TradingView alert or an Ampli webhook, or to have an Ampli agent run calls their own agent prepared.
 license: Proprietary. See LICENSE.
 metadata:
-  catalogVersion: "2026.10.3.3"
+  catalogVersion: "2026.10.5.1"
 ---
 
-# Ampli Composer
+# Maze agent skill
 
 Ampli runs treasury agents. Each agent follows a strategy composition: a
 graph of blocks drawn in Ampli Maze Studio (triggers, capital,
@@ -15,20 +15,21 @@ policy. This skill does two jobs:
 
 1. **Build a strategy**: write a composition the user imports into Maze
    Studio.
-2. **Send a signal**: tell a deployed agent to buy, sell or exit a symbol
-   by posting to its webhook URL.
+2. **Send a signal**: tell a deployed agent to buy, sell or exit a symbol,
+   or to execute calls you prepared, by posting to its webhook address
+   with its API key.
 
 Tell them apart by the request. "Make a strategy that...", "change this
 graph" and "how would I set up..." are job 1. "Buy ETH", "close my TSLA
 short", "send this alert" and "test the webhook" are job 2. A strategy
 that trades on outside signals needs both: build it with a `webhook`
 trigger, then send it signals once the user has deployed it and created
-its URL.
+its API key.
 
-This skill was generated from catalog `2026.10.3.3`. Maze Studio
+This skill was generated from catalog `2026.10.5.1`. Maze Studio
 rejects kinds and config keys it does not know, so if the user's Studio
 reports a different catalog version, ask them to download the skill again
-(Maze Studio -> AI Skill).
+(Maze Studio -> AI Skill), or fetch the latest from https://github.com/Ampli-Technologies/maze-agent-skill.
 
 ## Job 1: build a strategy
 
@@ -50,13 +51,14 @@ Maze Studio -> AI Skill -> Import composition.
 6. Output the JSON. Tell the user to read the validation report before
    accepting the import, then Rehearse. For a webhook strategy, rehearse
    buy, sell and exit with the Webhook signal scenario; each action
-   should end on would-send.
+   should end on would-send. For a Passthrough Agent, make the first live
+   signal a harmless one, such as an `hlActions` `cancelAll`.
 
 ### Output contract
 
 - Exactly one JSON code block, no prose inside it.
 - `version` is `2`.
-- `catalogVersion` is `2026.10.3.3`. Unknown kinds or config keys
+- `catalogVersion` is `2026.10.5.1`. Unknown kinds or config keys
   are errors; out-of-range numbers are warnings the user must accept.
 - `strategyClass` is required.
 - Node `id` values are unique short slugs.
@@ -84,12 +86,14 @@ Maze Studio -> AI Skill -> Import composition.
 
 ### What you need
 
-- The agent's webhook URL. The user creates it on the deployed agent:
-  Agents -> the agent's journal -> Webhook -> Create URL. It is shown once
-  and looks like `https://controlroom.ampli.net/api/composer/webhooks/<token>`. The token in the
-  path is the only credential, so treat the URL as a secret: read it from
-  an environment variable such as `AMPLI_WEBHOOK_URL`, never write it into
-  a file that may be committed, and never print it in full.
+- The agent's webhook address and API key. The user makes them in Maze
+  Studio, on the strategy's Webhook Signal block once it is deployed (or
+  Agents -> the agent's journal -> Webhook) -> Create key. The address
+  looks like `https://<agent composer API host>/v1/webhooks/wh_...` and is not secret on its
+  own. The key (`mzk_...`) is shown once and is the credential: read it
+  from an environment variable, `AMPLI_WEBHOOK_KEY`, never write it into a
+  file that may be committed, and never print it. Read the address from
+  `AMPLI_WEBHOOK_URL`.
 - An active agent whose graph has a `webhook` trigger wired for the
   action you send. A sell sent to a graph that ignores sells does nothing.
 
@@ -109,17 +113,22 @@ Maze Studio -> AI Skill -> Import composition.
 
 ```bash
 curl -sS -X POST "$AMPLI_WEBHOOK_URL" \
+  -H "Authorization: Bearer $AMPLI_WEBHOOK_KEY" \
   -H 'Content-Type: application/json' \
   -d '{"action":"buy","symbol":"ETH","size_pct":50,"id":"eth-buy-2026-10-03-1"}'
 ```
 
-Plain text works too: `buy ETH $500`, `sell BTC 25%`, `exit SOL`. A bare
-number is ambiguous and ignored; write `$500`, `500usd` or `25%`.
+The key goes in an `Authorization: Bearer` or `X-Webhook-Key` header. A
+sender that cannot set headers puts it in the JSON body as `"key"`.
+
+Plain text works too, with the key in a header: `buy ETH $500`,
+`sell BTC 25%`, `exit SOL`. A bare number is ambiguous and ignored; write
+`$500`, `500usd` or `25%`.
 
 ### Payload
 
-- `action`: `buy`, `sell` or `exit`. `long`, `short`, `close` and `flat`
-  are accepted.
+- `action`: `buy`, `sell`, `exit` or `execute`. `long`, `short`,
+  `close`, `flat` and `run` are accepted.
 - `symbol`: what to trade; see Symbols below.
 - `size_pct`: above 0 and at most 100. Scales what the block would do on
   its own.
@@ -130,6 +139,26 @@ number is ambiguous and ignored; write `$500`, `500usd` or `25%`.
 Every accepted alias and the TradingView alert message are in
 `references/structures.md`; ready-made senders are in
 `references/examples.md`.
+
+### Execute prepared calls
+
+When the user's own agent decides what to do and Ampli only holds the
+keys, send the plan itself to an agent built on the Passthrough Agent
+template (a `webhook` whose `execute` output feeds `raw-calls`):
+
+```json
+{"action":"execute","id":"plan-42","calls":[{"to":"0x...","data":"0x...","value":"0"}],"hlActions":[{"type":"order","orders":[{"coin":"ETH","side":"buy","notionalUsd":500,"orderType":"market","reduceOnly":false,"market":"perp"}]}]}
+```
+
+- `calls` run as one batch from the treasury wallet; `hlActions` are
+  signed on its Hyperliquid account. Up to 32 of each.
+- Every call and action is checked against the treasury policy first. If
+  any one fails, the whole signal is refused (`RAW_CALLS_REFUSED`) and
+  nothing runs. Tell the user which policy change it needs.
+- Never build calldata you cannot explain to the user. Repeat the targets,
+  functions and amounts back and wait for a yes before sending.
+- Field formats and the accepted Hyperliquid action types are in
+  `references/structures.md`.
 
 ### Symbols
 
@@ -154,12 +183,12 @@ Every accepted alias and the TradingView alert message are in
   anything traded. The outcome is in the agent's journal in Maze Studio.
 - 200 with `duplicate: true`: that id was already taken; nothing new runs.
 - 400: unreadable payload. Fix it; do not resend it unchanged.
-- 404: unknown or revoked URL. Ask the user for the current one.
+- 401: missing, wrong or revoked key. Ask the user for the current key.
+- 404: unknown address. Ask the user for the agent's address.
 - 409: the agent is not active.
 - 413: the body is over 16 KB.
 - 422: the agent has no webhook flow.
 - 429: more than 20 signals are waiting. Wait, then retry with the same id.
-- 503: temporarily unavailable. Retry later with the same id.
 
 ## References
 

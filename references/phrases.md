@@ -52,6 +52,11 @@ and the Base Signal Accumulator it means:
 | "$500 of ETH" | add `"size_usd":500`; honoured only up to the trigger's `maxSizeUsd`, and never above the block's own size |
 | "buy this token 0x..." | `{"action":"buy","symbol":"0x..."}`; the address must be on the policy whitelist |
 | "take profit", "trim" | ambiguous: ask whether to close (`exit`) or reduce, since `sell` reverses a perp position |
+| "run these calls", "execute my plan" | `{"action":"execute","calls":[...],"hlActions":[...]}` to a Passthrough Agent; repeat every target and amount back first |
+| "cancel my ETH orders" (Passthrough Agent) | `{"action":"execute","hlActions":[{"type":"cancelAll"}]}`, or `cancel` with the `coin` and `orderId` |
+
+An `execute` signal does nothing on an agent without a `raw-calls` block
+on the trigger's `execute` output; check the strategy first.
 
 Always add an `id`. Ask before sending when the agent, action or symbol
 is unclear, and never raise a size the user did not give.
